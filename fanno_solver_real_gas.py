@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.optimize import fsolve
+import matplotlib.pyplot as plt
 from CoolProp.CoolProp import PropsSI
 
 fluid = "Methane"
@@ -16,7 +17,10 @@ def get_properties_PT(P, T):
     h   = PropsSI('H', 'P', P, 'T', T, fluid)
     a   = PropsSI('A', 'P', P, 'T', T, fluid)
     mu = PropsSI('V', 'P', P, 'T', T, fluid)
-    return rho, h, a, mu
+    Cp = PropsSI('Cpmass', 'P', P, 'T', T, fluid)
+    Cv = PropsSI('Cvmass', 'P', P, 'T', T, fluid)
+    gamma = Cp / Cv
+    return rho, h, a, mu, gamma
 
 def get_properties_HP(h, P):
     """
@@ -28,7 +32,11 @@ def get_properties_HP(h, P):
     T   = PropsSI('T', 'H', h, 'P', P, fluid)
     rho = PropsSI('D', 'H', h, 'P', P, fluid)
     a   = PropsSI('A', 'H', h, 'P', P, fluid)
-    return T, rho, a
+    mu = PropsSI('V', 'H', h, 'P', P, fluid)
+    Cp = PropsSI('Cpmass', 'H', h, 'P', P, fluid)
+    Cv = PropsSI('Cvmass', 'H', h, 'P', P, fluid)
+    gamma = Cp / Cv
+    return T, rho, a, mu, gamma
 
 """ Reynolds number """
 def reynolds_number(rho, u, D, mu):
@@ -44,7 +52,7 @@ def friction_factor_colebrook(Re, D, epsilon):
     if Re < 2300:
         return 64 / Re
     # initial guess (Blasius)
-    f_guess = 0.02
+    f_guess = np.array([0.02, 0.02, 0.02, 0.02])
     func = lambda f: colebrook_residual(f, Re, D, epsilon)
     f_solution = fsolve(func, f_guess)[0]
     return f_solution
@@ -80,7 +88,7 @@ def residual(u_next, P_i, rho_i, u_i, h0, f, Dh, dx, m_dot, A):
     P_next = momentum_update(P_i, rho_i, u_i, u_next, f, Dh, dx)
 
     # EOS
-    T_next, rho_next, a_next = get_properties_HP(h_next, P_next)
+    T_next, rho_next, a_next, mu_next, gamma_next = get_properties_HP(h_next, P_next)
 
     # Continuity
     u_calc = velocity_from_continuity(m_dot, rho_next, A)
@@ -97,7 +105,7 @@ def solve_velocity(u_i, P_i, rho_i, h0, f, Dh, dx, m_dot, A):
     return u_next
 
 
-def update_state(P_i, T_i, rho_i, h_i, u_i,
+def update_state(Pt_i, P_i, T_i, rho_i, h_i, u_i,
                  u_next, f, Dh, dx):
     # Total enthalpy
     h0 = h_i + 0.5 * u_i ** 2
@@ -109,16 +117,22 @@ def update_state(P_i, T_i, rho_i, h_i, u_i,
     P_next = momentum_update(P_i, rho_i, u_i, u_next, f, Dh, dx)
 
     # EOS
-    T_next, rho_next, a_next = get_properties_HP(h_next, P_next)
+    T_next, rho_next, a_next, mu_next, gamma_next = get_properties_HP(h_next, P_next)
 
-    return P_next, T_next, rho_next, h_next, a_next
+    # Mach number
+    M_next = u_next / a_next
+
+    # Total Pressure
+    Pt_next = Pt_i * (1 - (gamma_next * M_next ** 2 / 2.0) * (4.0 * f / Dh) * dx)
+
+    return Pt_next, P_next, T_next, rho_next, h_next, a_next
 
 
 
 """ Input Parameters """
 
-P0 = 60e5     # Pressure [Pa]
-T0 = 250     # Temperature [K]
+P1 = 60e5     # Pressure [Pa]
+T1 = 250     # Temperature [K]
 
 #f = 0.015     # Darcy friction factor
 epsilon = 0
@@ -137,6 +151,8 @@ x_profiles = []
 M_profiles = []
 P_profiles = []
 T_profiles = []
+Pt_profiles = []
+f_profiles = []
 
 """ Outer loop """
 for d, m_dot in zip(d_array, m_dot_array):
@@ -145,14 +161,21 @@ for d, m_dot in zip(d_array, m_dot_array):
     Dh = d
     A  = np.pi * d**2 / 4
 
-    P = P0
-    T = T0
+    P = P1
+    T = T1
 
-    rho, h, a, mu = get_properties_PT(P, T)
+    rho, h, a, mu, gamma = get_properties_PT(P, T)
 
     u = m_dot / (rho * A)
 
     M = u / a
+
+    #Total pressure
+    Pt = P * (1 + (gamma - 1) / 2 * M ** 2) ** (gamma / (gamma - 1))
+
+    # Friction factor
+    Re = reynolds_number(rho, u, Dh, mu)
+    f = friction_factor_haaland(Re, Dh, epsilon)
 
     x = 0.0
 
@@ -160,12 +183,16 @@ for d, m_dot in zip(d_array, m_dot_array):
     M_profile = []
     P_profile = []
     T_profile = []
+    Pt_profile = []
+    f_profile = []
 
     # store initial point
     x_profile.append(x)
     M_profile.append(M)
     P_profile.append(P)
     T_profile.append(T)
+    Pt_profile.append(Pt)
+    f_profile.append(f)
 
     """ Inner Marching loop """
     for step in range(max_steps):
@@ -175,6 +202,8 @@ for d, m_dot in zip(d_array, m_dot_array):
         M_profile.append(M)
         P_profile.append(P)
         T_profile.append(T)
+        Pt_profile.append(Pt)
+        f_profile.append(f)
 
 
         # STOP CONDITION
@@ -186,24 +215,22 @@ for d, m_dot in zip(d_array, m_dot_array):
         h0 = h + 0.5 * u ** 2
 
         Re = reynolds_number(rho, u, Dh, mu)
-
         f = friction_factor_haaland(Re, Dh, epsilon)
+
 
         # SOLVE FOR NEXT VELOCITY
         u_next = solve_velocity(u, P, rho, h0, f, Dh, dx, m_dot, A)
 
 
         # UPDATE STATE (energy + momentum + EOS)
-        P, T, rho, h, a = update_state(
-            P, T, rho, h, u,
+        Pt, P, T, rho, h, a = update_state(
+            Pt, P, T, rho, h, u,
             u_next, f, Dh, dx
         )
-
 
         # UPDATE FLOW VARIABLES
         u = u_next
         M = u / a
-
 
         # UPDATE POSITION
         x += dx
@@ -215,6 +242,8 @@ for d, m_dot in zip(d_array, m_dot_array):
     M_profiles.append(M_profile)
     P_profiles.append(P_profile)
     T_profiles.append(T_profile)
+    f_profiles.append(f_profile)
+    Pt_profiles.append(Pt_profile)
 
 
     """ Results """
@@ -225,3 +254,97 @@ for d, m_dot in zip(d_array, m_dot_array):
     print(f"Final Mach   : {M:.6f}")
     print(f"Steps taken  : {len(x_profile)}")
     print("==============================")
+
+
+
+
+
+    """ Mach number graph """
+    plt.figure()
+
+    for i in range(len(x_profiles)):
+        plt.plot(
+            x_profiles[i],
+            M_profiles[i],
+            label=f'd={d_array[i] * 1000:.1f} mm, m={m_dot_array[i]:.3f}'
+        )
+
+    plt.xlabel("Length (m)")
+    plt.ylabel("Mach Number")
+    plt.title("Mach Number Variation Along Channel")
+    plt.legend()
+    plt.grid()
+    plt.tight_layout()
+    plt.show()
+
+    """ Total Pressure graph """
+    plt.figure()
+
+    for i in range(len(x_profiles)):
+        plt.plot(
+            x_profiles[i],
+            Pt_profiles[i],
+            label=f'd={d_array[i] * 1000:.1f} mm, m={m_dot_array[i]:.3f}'
+        )
+
+    plt.xlabel("Length (m)")
+    plt.ylabel("Total Pressure (Pa)")
+    plt.title("Total Pressure Drop Along Channel")
+    plt.legend()
+    plt.grid()
+    plt.tight_layout()
+    plt.show()
+
+    """ Static Pressure graph """
+    plt.figure()
+
+    for i in range(len(x_profiles)):
+        plt.plot(
+            x_profiles[i],
+            P_profiles[i],
+            label=f'd={d_array[i] * 1000:.1f} mm'
+        )
+
+    plt.xlabel("Length (m)")
+    plt.ylabel("Static Pressure (Pa)")
+    plt.title("Static Pressure Variation")
+    plt.legend()
+    plt.grid()
+    plt.tight_layout()
+    plt.show()
+
+    """ Static Temperature graph """
+    plt.figure()
+
+    for i in range(len(x_profiles)):
+        plt.plot(
+            x_profiles[i],
+            T_profiles[i],
+            label=f'd={d_array[i] * 1000:.1f} mm'
+        )
+
+    plt.xlabel("Length (m)")
+    plt.ylabel("Static Temperature (Pa)")
+    plt.title("Static Temperature Variation")
+    plt.legend()
+    plt.grid()
+    plt.tight_layout()
+    plt.show()
+
+    """ Friction factor graph """
+    plt.figure()
+
+    for i in range(len(x_profiles)):
+        plt.plot(
+            x_profiles[i],
+            f_profiles[i],
+            label=f'd={d_array[i] * 1000:.1f} mm'
+        )
+
+    plt.xlabel("Length (m)")
+    plt.ylabel("Friction Factor")
+    plt.title("Friction Factor Variation")
+    plt.legend()
+    plt.grid()
+    plt.tight_layout()
+    plt.show()
