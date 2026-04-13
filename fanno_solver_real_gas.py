@@ -15,7 +15,8 @@ def get_properties_PT(P, T):
     rho = PropsSI('D', 'P', P, 'T', T, fluid)
     h   = PropsSI('H', 'P', P, 'T', T, fluid)
     a   = PropsSI('A', 'P', P, 'T', T, fluid)
-    return rho, h, a
+    mu = PropsSI('V', 'P', P, 'T', T, fluid)
+    return rho, h, a, mu
 
 def get_properties_HP(h, P):
     """
@@ -28,6 +29,35 @@ def get_properties_HP(h, P):
     rho = PropsSI('D', 'H', h, 'P', P, fluid)
     a   = PropsSI('A', 'H', h, 'P', P, fluid)
     return T, rho, a
+
+""" Reynolds number """
+def reynolds_number(rho, u, D, mu):
+    return rho * u * D / mu
+
+""" Friction factor """
+def colebrook_residual(f, Re, D, epsilon):
+    return 1 / np.sqrt(f) + 2.0 * np.log10(
+        (epsilon / (3.7 * D)) + (2.51 / (Re * np.sqrt(f)))
+    )
+
+def friction_factor_colebrook(Re, D, epsilon):
+    if Re < 2300:
+        return 64 / Re
+    # initial guess (Blasius)
+    f_guess = 0.02
+    func = lambda f: colebrook_residual(f, Re, D, epsilon)
+    f_solution = fsolve(func, f_guess)[0]
+    return f_solution
+
+def friction_factor_haaland(Re, D, epsilon):
+    # Laminar
+    if Re < 2300:
+        return 64 / Re
+
+    # Haaland (Darcy)
+    term = (epsilon / (3.7 * D)) ** 1.11 + 6.9 / Re
+    f = (-1.8 * np.log10(term)) ** (-2)
+    return f
 
 """ Continuity Momentum and Energy equations """
 def velocity_from_continuity(m_dot, rho, A):
@@ -90,12 +120,13 @@ def update_state(P_i, T_i, rho_i, h_i, u_i,
 P0 = 60e5     # Pressure [Pa]
 T0 = 250     # Temperature [K]
 
-f = 0.015     # Darcy friction factor
+#f = 0.015     # Darcy friction factor
+epsilon = 0
 
 d_array = np.array([0.0020, 0.0030, 0.0040, 0.0050])  # [m]
 m_dot_array = np.array([0.016, 0.036, 0.064, 0.100])  # [kg/s]
 
-dx = 1e-4        # Step size [m]
+dx = 1e-3        # Step size [m]
 max_steps = 100000
 
 M_target = 0.5
@@ -117,7 +148,7 @@ for d, m_dot in zip(d_array, m_dot_array):
     P = P0
     T = T0
 
-    rho, h, a = get_properties_PT(P, T)
+    rho, h, a, mu = get_properties_PT(P, T)
 
     u = m_dot / (rho * A)
 
@@ -145,32 +176,35 @@ for d, m_dot in zip(d_array, m_dot_array):
         P_profile.append(P)
         T_profile.append(T)
 
-        
+
         # STOP CONDITION
         if M >= M_target:
             break
 
-        
+
         # TOTAL ENTHALPY
         h0 = h + 0.5 * u ** 2
 
-        
+        Re = reynolds_number(rho, u, Dh, mu)
+
+        f = friction_factor_haaland(Re, Dh, epsilon)
+
         # SOLVE FOR NEXT VELOCITY
         u_next = solve_velocity(u, P, rho, h0, f, Dh, dx, m_dot, A)
 
-        
+
         # UPDATE STATE (energy + momentum + EOS)
         P, T, rho, h, a = update_state(
             P, T, rho, h, u,
             u_next, f, Dh, dx
         )
 
-        
+
         # UPDATE FLOW VARIABLES
         u = u_next
         M = u / a
 
-        
+
         # UPDATE POSITION
         x += dx
 
