@@ -29,4 +29,4 @@ Some key characteristics:
 Install the required packages:
 
 ```bash
-pip install numpy matplotlib CoolProp
+pip install numpy scipy matplotlib CoolProp 

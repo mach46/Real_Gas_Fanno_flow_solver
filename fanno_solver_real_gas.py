@@ -123,7 +123,7 @@ def update_state(Pt_i, P_i, T_i, rho_i, h_i, u_i,
     M_next = u_next / a_next
 
     # Total Pressure
-    Pt_next = Pt_i * (1 - (gamma_next * M_next ** 2 / 2.0) * (4.0 * f / Dh) * dx)
+    Pt_next = P_next * (1 + (gamma_next - 1) / 2 * M_next ** 2) ** (gamma_next / (gamma_next - 1))
 
     return Pt_next, P_next, T_next, rho_next, h_next, a_next
 
@@ -132,7 +132,7 @@ def update_state(Pt_i, P_i, T_i, rho_i, h_i, u_i,
 """ Input Parameters """
 
 P1 = 60e5     # Pressure [Pa]
-T1 = 250     # Temperature [K]
+T1 = 250      # Temperature [K]
 
 #f = 0.015     # Darcy friction factor
 epsilon = 0
@@ -143,7 +143,7 @@ m_dot_array = np.array([0.016, 0.036, 0.064, 0.100])  # [kg/s]
 dx = 1e-3        # Step size [m]
 max_steps = 100000
 
-M_target = 0.5
+M_target = 0.8
 
 """GLOBAL STORAGE (ALL CASES)"""
 L_results = []
@@ -165,13 +165,18 @@ for d, m_dot in zip(d_array, m_dot_array):
     T = T1
 
     rho, h, a, mu, gamma = get_properties_PT(P, T)
+    rho1 = rho  # store inlet density
 
     u = m_dot / (rho * A)
+    u1 = u  # Store Inlet velocity
 
     M = u / a
+    M1 = M  # Store Inlet mach number
+
 
     #Total pressure
     Pt = P * (1 + (gamma - 1) / 2 * M ** 2) ** (gamma / (gamma - 1))
+    Pt1 = Pt    # Store inlet Stagnation Pressure
 
     # Friction factor
     Re = reynolds_number(rho, u, Dh, mu)
@@ -247,13 +252,28 @@ for d, m_dot in zip(d_array, m_dot_array):
 
 
     """ Results """
-    print("\n==============================")
+    print("\n=======================================================")
     print(f"D = {d:.4f} m | m_dot = {m_dot:.4f} kg/s")
-    print("------------------------------")
-    print(f"Length (L)   : {x:.6f} m")
-    print(f"Final Mach   : {M:.6f}")
-    print(f"Steps taken  : {len(x_profile)}")
-    print("==============================")
+    print("-------------------------------------------------------")
+    print(f"Length (L)                      : {x:.6f} m")
+    print(f"Steps taken                     : {len(x_profile)}")
+    print(f"Stagnation Pressure Drop        : {(Pt1-Pt):.6f} Pa")
+    print(f"Static Pressure Drop            : {(P1-P):.6f} Pa")
+    print("-------------------------------------------------------")
+    print(f"Inlet Mach                      : {M1:.6f}")
+    print(f"Inlet Velocity                  : {u1:.6f} m/s")
+    print(f"Inlet Stagnation Pressure       : {Pt1:.6f} Pa")
+    print(f"Inlet Static Pressure           : {P1:.6f} Pa")
+    print(f"Inlet Static Temperature        : {T1:.6f} K")
+    print(f"Inlet Density                   : {rho1:.6f} kg/m3")
+    print("-------------------------------------------------------")
+    print(f"Outlet Mach                     : {M:.6f}")
+    print(f"Outlet Velocity                 : {u:.6f} m/s")
+    print(f"Outlet Stagnation Pressure      : {Pt:.6f} Pa")
+    print(f"Outlet Static Pressure          : {P:.6f} Pa")
+    print(f"Outlet Static Temperature       : {T:.6f} K")
+    print(f"Outlet Density                  : {rho:.6f} kg/m3")
+    print("=======================================================")
 
 
 
