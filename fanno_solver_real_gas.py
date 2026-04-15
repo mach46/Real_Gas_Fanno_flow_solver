@@ -125,25 +125,28 @@ def update_state(Pt_i, P_i, T_i, rho_i, h_i, u_i,
     # Total Pressure
     Pt_next = P_next * (1 + (gamma_next - 1) / 2 * M_next ** 2) ** (gamma_next / (gamma_next - 1))
 
-    return Pt_next, P_next, T_next, rho_next, h_next, a_next
+    # Total Temperature
+    Tt_next = T_next * (1 + (gamma_next - 1) / 2 * M_next ** 2)
+
+    return Pt_next, P_next,Tt_next, T_next, rho_next, h_next, a_next
 
 
 
 """ Input Parameters """
 
-P1 = 60e5     # Pressure [Pa]
+P1 = 90e5     # Pressure [Pa]
 T1 = 250      # Temperature [K]
 
 #f = 0.015     # Darcy friction factor
 epsilon = 0
 
 d_array = np.array([0.0020, 0.0030, 0.0040, 0.0050])  # [m]
-m_dot_array = np.array([0.016, 0.036, 0.064, 0.100])  # [kg/s]
+m_dot_array = np.array([0.016*2.5, 0.036*2.5, 0.064*2.5, 0.100*2.5])  # [kg/s]
 
 dx = 1e-3        # Step size [m]
 max_steps = 100000
 
-M_target = 0.8
+M_target = 0.5
 
 """GLOBAL STORAGE (ALL CASES)"""
 L_results = []
@@ -151,6 +154,7 @@ x_profiles = []
 M_profiles = []
 P_profiles = []
 T_profiles = []
+Tt_profiles = []
 Pt_profiles = []
 f_profiles = []
 
@@ -178,6 +182,10 @@ for d, m_dot in zip(d_array, m_dot_array):
     Pt = P * (1 + (gamma - 1) / 2 * M ** 2) ** (gamma / (gamma - 1))
     Pt1 = Pt    # Store inlet Stagnation Pressure
 
+    Tt = T * (1 + (gamma - 1) / 2 * M ** 2)
+    Tt1 = Tt    # Store inlet Stagnation Temperature
+
+
     # Friction factor
     Re = reynolds_number(rho, u, Dh, mu)
     f = friction_factor_haaland(Re, Dh, epsilon)
@@ -188,6 +196,7 @@ for d, m_dot in zip(d_array, m_dot_array):
     M_profile = []
     P_profile = []
     T_profile = []
+    Tt_profile = []
     Pt_profile = []
     f_profile = []
 
@@ -196,6 +205,7 @@ for d, m_dot in zip(d_array, m_dot_array):
     M_profile.append(M)
     P_profile.append(P)
     T_profile.append(T)
+    Tt_profile.append(Tt)
     Pt_profile.append(Pt)
     f_profile.append(f)
 
@@ -228,7 +238,7 @@ for d, m_dot in zip(d_array, m_dot_array):
 
 
         # UPDATE STATE (energy + momentum + EOS)
-        Pt, P, T, rho, h, a = update_state(
+        Pt, P, Tt, T, rho, h, a = update_state(
             Pt, P, T, rho, h, u,
             u_next, f, Dh, dx
         )
@@ -247,6 +257,7 @@ for d, m_dot in zip(d_array, m_dot_array):
     M_profiles.append(M_profile)
     P_profiles.append(P_profile)
     T_profiles.append(T_profile)
+    Tt_profiles.append(Tt_profile)
     f_profiles.append(f_profile)
     Pt_profiles.append(Pt_profile)
 
@@ -264,6 +275,7 @@ for d, m_dot in zip(d_array, m_dot_array):
     print(f"Inlet Velocity                  : {u1:.6f} m/s")
     print(f"Inlet Stagnation Pressure       : {Pt1:.6f} Pa")
     print(f"Inlet Static Pressure           : {P1:.6f} Pa")
+    print(f"Inlet Stagnation Temperature    : {Tt1:.6f} K")
     print(f"Inlet Static Temperature        : {T1:.6f} K")
     print(f"Inlet Density                   : {rho1:.6f} kg/m3")
     print("-------------------------------------------------------")
@@ -271,100 +283,104 @@ for d, m_dot in zip(d_array, m_dot_array):
     print(f"Outlet Velocity                 : {u:.6f} m/s")
     print(f"Outlet Stagnation Pressure      : {Pt:.6f} Pa")
     print(f"Outlet Static Pressure          : {P:.6f} Pa")
+    print(f"Outlet Stagnation Temperature   : {Tt:.6f} K")
     print(f"Outlet Static Temperature       : {T:.6f} K")
     print(f"Outlet Density                  : {rho:.6f} kg/m3")
     print("=======================================================")
 
 
+    plt_fig = False
 
+    if plt_fig == True:
+        """ Mach number graph """
+        plt.figure()
 
+        for i in range(len(x_profiles)):
+            plt.plot(
+                x_profiles[i],
+                M_profiles[i],
+                label=f'd={d_array[i] * 1000:.1f} mm, m={m_dot_array[i]:.3f}'
+            )
 
-    """ Mach number graph """
-    plt.figure()
+        plt.xlabel("Length (m)")
+        plt.ylabel("Mach Number")
+        plt.title("Mach Number Variation Along Channel")
+        plt.legend()
+        plt.grid()
+        plt.tight_layout()
+        plt.show()
 
-    for i in range(len(x_profiles)):
-        plt.plot(
-            x_profiles[i],
-            M_profiles[i],
-            label=f'd={d_array[i] * 1000:.1f} mm, m={m_dot_array[i]:.3f}'
-        )
+        """ Total Pressure graph """
+        plt.figure()
 
-    plt.xlabel("Length (m)")
-    plt.ylabel("Mach Number")
-    plt.title("Mach Number Variation Along Channel")
-    plt.legend()
-    plt.grid()
-    plt.tight_layout()
-    plt.show()
+        for i in range(len(x_profiles)):
+            plt.plot(
+                x_profiles[i],
+                Pt_profiles[i],
+                label=f'd={d_array[i] * 1000:.1f} mm, m={m_dot_array[i]:.3f}'
+            )
 
-    """ Total Pressure graph """
-    plt.figure()
+        plt.xlabel("Length (m)")
+        plt.ylabel("Total Pressure (Pa)")
+        plt.title("Total Pressure Drop Along Channel")
+        plt.legend()
+        plt.grid()
+        plt.tight_layout()
+        plt.show()
 
-    for i in range(len(x_profiles)):
-        plt.plot(
-            x_profiles[i],
-            Pt_profiles[i],
-            label=f'd={d_array[i] * 1000:.1f} mm, m={m_dot_array[i]:.3f}'
-        )
+        """ Static Pressure graph """
+        plt.figure()
 
-    plt.xlabel("Length (m)")
-    plt.ylabel("Total Pressure (Pa)")
-    plt.title("Total Pressure Drop Along Channel")
-    plt.legend()
-    plt.grid()
-    plt.tight_layout()
-    plt.show()
+        for i in range(len(x_profiles)):
+            plt.plot(
+                x_profiles[i],
+                P_profiles[i],
+                label=f'd={d_array[i] * 1000:.1f} mm'
+            )
 
-    """ Static Pressure graph """
-    plt.figure()
+        plt.xlabel("Length (m)")
+        plt.ylabel("Static Pressure (Pa)")
+        plt.title("Static Pressure Variation")
+        plt.legend()
+        plt.grid()
+        plt.tight_layout()
+        plt.show()
 
-    for i in range(len(x_profiles)):
-        plt.plot(
-            x_profiles[i],
-            P_profiles[i],
-            label=f'd={d_array[i] * 1000:.1f} mm'
-        )
+        """ Static Temperature graph """
+        plt.figure()
 
-    plt.xlabel("Length (m)")
-    plt.ylabel("Static Pressure (Pa)")
-    plt.title("Static Pressure Variation")
-    plt.legend()
-    plt.grid()
-    plt.tight_layout()
-    plt.show()
+        for i in range(len(x_profiles)):
+            plt.plot(
+                x_profiles[i],
+                T_profiles[i],
+                label=f'd={d_array[i] * 1000:.1f} mm'
+            )
 
-    """ Static Temperature graph """
-    plt.figure()
+        plt.xlabel("Length (m)")
+        plt.ylabel("Static Temperature (Pa)")
+        plt.title("Static Temperature Variation")
+        plt.legend()
+        plt.grid()
+        plt.tight_layout()
+        plt.show()
 
-    for i in range(len(x_profiles)):
-        plt.plot(
-            x_profiles[i],
-            T_profiles[i],
-            label=f'd={d_array[i] * 1000:.1f} mm'
-        )
+        """ Friction factor graph """
+        plt.figure()
 
-    plt.xlabel("Length (m)")
-    plt.ylabel("Static Temperature (Pa)")
-    plt.title("Static Temperature Variation")
-    plt.legend()
-    plt.grid()
-    plt.tight_layout()
-    plt.show()
+        for i in range(len(x_profiles)):
+            plt.plot(
+                x_profiles[i],
+                f_profiles[i],
+                label=f'd={d_array[i] * 1000:.1f} mm'
+            )
 
-    """ Friction factor graph """
-    plt.figure()
+        plt.xlabel("Length (m)")
+        plt.ylabel("Friction Factor")
+        plt.title("Friction Factor Variation")
+        plt.legend()
+        plt.grid()
+        plt.tight_layout()
+        plt.show()
 
-    for i in range(len(x_profiles)):
-        plt.plot(
-            x_profiles[i],
-            f_profiles[i],
-            label=f'd={d_array[i] * 1000:.1f} mm'
-        )
-
-    plt.xlabel("Length (m)")
-    plt.ylabel("Friction Factor")
-    plt.title("Friction Factor Variation")
-    plt.legend()
-    plt.grid()
-    plt.tight_layout()
-    plt.show()
+    else:
+        break
